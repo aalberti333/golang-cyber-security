@@ -6,49 +6,42 @@ import (
 	"net"
 )
 
-// echo is a handler function that simply echoes received data
-func echo(conn net.Conn) {
-	defer conn.Close()
+// This code would run on "joesproxy.com" to successfully forward
+// To test, you would run "curl -i -X GET http://joesproxy.com"
+// and would receive info from joescatcam.website:80
+func handle(src net.Conn) {
+	dst, err := net.Dial("tcp", "joescatcam.website:80")
+	if err != nil {
+		log.Fatalln("Unable to connect to our unreachable host")
+	}
+	defer dst.Close()
 
-	// create a buffer to store received data
-	b := make([]byte, 512)
-
-	for {
-		// receive data via conn.Read into a buffer
-		size, err := conn.Read(b[0:])
-		if err == io.EOF {
-			log.Println("Client disconnected")
-			break
+	// Run in goroutine to prevent io.Copy from blocking
+	go func() {
+		// Copy our source's output to the destination
+		// https://golang.org/pkg/io/#Copy for doc (copies from 2nd arg to 1st)
+		if _, err := io.Copy(dst, src); err != nil {
+			log.Fatalln(err)
 		}
-		if err != nil {
-			log.Println("Unexpected error")
-			break
-		}
-		log.Printf("Received %d bytes: %s\n", size, string(b))
-
-		// send data via conn.Write
-		log.Println("Writing data")
-		if _, err := conn.Write(b[0:size]); err != nil {
-			log.Fatalln("Unable to write data")
-		}
+	}()
+	// Copy our destination's output back to our source
+	if _, err := io.Copy(src, dst); err != nil {
+		log.Fatalln(err)
 	}
 }
 
 func main() {
-	// Bind to TCP port 20080 on all interfaces.
-	listener, err := net.Listen("tcp", ":20080")
+	// Listen on local port 80
+	listener, err := net.Listen("tcp", ":80")
 	if err != nil {
 		log.Fatalln("Unable to bind to port")
 	}
-	log.Println("Listening on 0.0.0.0:20080")
+
 	for {
-		// Wait for connection. Create net.Conn on connection established.
 		conn, err := listener.Accept()
-		log.Println("Received connection")
 		if err != nil {
 			log.Fatalln("Unable to accept connection")
 		}
-		// Handle the connection. Using goroutine for concurrency.
-		go echo(conn)
+		go handle(conn)
 	}
 }
